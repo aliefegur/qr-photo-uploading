@@ -1,97 +1,10 @@
-"use client";
+import {Suspense} from "react";
+import LoginClient from "@/app/login/LoginClient";
 
-import {useEffect, useState} from "react";
-import {onAuthStateChanged, signInWithEmailAndPassword} from "firebase/auth";
-import {auth} from "@/lib/firebase";
-import {useRouter, useSearchParams} from "next/navigation";
-
-export default function LoginPage() {
-  const router = useRouter();
-  const params = useSearchParams();
-  const redirect = params?.get("redirect") || "/gallery";
-
-  const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Zaten girişliyse redirect
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u) router.replace(redirect);
-    });
-    return () => unsub();
-  }, [router, redirect]);
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await signInWithEmailAndPassword(auth, email.trim(), pw);
-      router.replace(redirect);
-    } catch (err: any) {
-      // Basic hata map’i
-      const code = err?.code ?? "";
-      if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
-        setError("E-posta veya şifre hatalı.");
-      } else if (code === "auth/user-not-found") {
-        setError("Kullanıcı bulunamadı.");
-      } else {
-        setError("Giriş yapılamadı. Lütfen tekrar deneyin.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+export default function GalleryPage() {
   return (
-    <main className="min-h-screen grid place-items-center bg-slate-50 p-6">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-white rounded-2xl shadow p-6 space-y-4"
-      >
-        <h1 className="text-lg font-semibold">Oturum Aç</h1>
-
-        <div className="flex flex-col gap-1 space-y-1">
-          <label htmlFor="email" className="text-sm text-slate-600">E-posta</label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1 space-y-1">
-          <label htmlFor="pw" className="text-sm text-slate-600">Şifre</label>
-          <input
-            id="pw"
-            type="password"
-            required
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-lg bg-blue-600 text-white py-2 font-medium disabled:opacity-60"
-        >
-          {submitting ? "Giriş yapılıyor…" : "Giriş yap"}
-        </button>
-
-        <p className="text-xs text-slate-500">
-          Hesap oluşturma kapalıdır. Lütfen yöneticiden kullanıcı oluşturmasını isteyin.
-        </p>
-      </form>
-    </main>
+    <Suspense fallback={<div>Loading…</div>}>
+      <LoginClient/>
+    </Suspense>
   );
 }

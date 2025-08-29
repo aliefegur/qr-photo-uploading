@@ -21,8 +21,8 @@ export const waitForThumbnailURL = async (
   for (let i = 0; i < tries; i++) {
     for (const path of candidates) {
       try {
-        const url = await getDownloadURL(ref(storage, path));
-        return url; // bulundu
+        return await getDownloadURL(ref(storage, path));
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_e) {
         // yoksa bir sonraki adaya geç
       }
@@ -34,7 +34,27 @@ export const waitForThumbnailURL = async (
 
 // (geri kalanlar aynı)
 export const startUpload = (file: File): UploadState => {
-  const id = `${Date.now()}-${(globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  function safeRandomId(): string {
+    // Browser / Edge Runtime
+    if (typeof crypto !== "undefined") {
+      if (typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+      if (typeof crypto.getRandomValues === "function") {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        // RFC 4122 v4 bitlerini ayarla
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+    }
+    // Son çare (çakışma riski düşük, ama UUID değil)
+    return Math.random().toString(36).slice(2);
+  }
+
+  const id = `${Date.now()}-${safeRandomId()}`;
   const path = `uploads/${id}-${file.name}`;
   const storageRef = ref(storage, path);
   const uploadTask = uploadBytesResumable(storageRef, file);

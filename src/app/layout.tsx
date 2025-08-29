@@ -1,11 +1,12 @@
-import type { Metadata } from 'next';
-import { Open_Sans } from 'next/font/google';
+import type {Metadata} from 'next';
+import {Rubik} from 'next/font/google';
+import {ReactNode} from "react";
 import './globals.css';
 
-const openSans = Open_Sans({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-});
+const rubik = Rubik({
+  variable: '--font-rubik',
+  subsets: ['latin']
+})
 
 export const metadata: Metadata = {
   title: 'Create Next App',
@@ -13,13 +14,13 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
+                                     children,
+                                   }: Readonly<{
+  children: ReactNode;
 }>) {
   return (
     <html lang="tr">
-      <body className={`antialiased`}>{children}</body>
+    <body className={`${rubik.className} antialiased`}>{children}</body>
     </html>
   );
 }

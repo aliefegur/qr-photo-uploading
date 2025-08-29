@@ -60,7 +60,7 @@ export default function UploadItem({
 
           <div className="flex items-center space-x-2">
             {!u.complete && (
-              <button className="text-red-500 text-xs" onClick={() => onCancel(u.id)}>
+              <button className="text-red-500 text-xs cursor-pointer" onClick={() => onCancel(u.id)}>
                 İptal
               </button>
             )}

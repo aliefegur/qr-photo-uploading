@@ -46,6 +46,7 @@ export default function MediaOverlay({
           // JPEG/PNG/GIF ya da Video: direkt göster
           if (active) setUrl(orig);
         }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         if (active) setErr("Medya yüklenemedi (yetki veya ağ hatası).");
       } finally {
@@ -104,6 +105,7 @@ export default function MediaOverlay({
                   className="max-h-[85vh] w-full h-auto"
                 />
               ) : (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={url}
                   alt={item.name}
@@ -116,6 +118,7 @@ export default function MediaOverlay({
           <aside className="hidden md:flex flex-col p-4 gap-3">
             <h3 className="font-medium break-words">{item.name}</h3>
             {item.thumbURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={item.thumbURL}
                 alt="Thumbnail"

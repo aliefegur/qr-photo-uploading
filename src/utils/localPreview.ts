@@ -1,4 +1,3 @@
-// utils/localPreview.ts
 const HEIC_RE = /(image\/hei[cf])|(heic|heif)$/i;
 
 export type PreviewResult =
@@ -13,7 +12,7 @@ export async function makeImagePreview(
 ): Promise<PreviewResult> {
   const maybeHeic = HEIC_RE.test(file.type) || HEIC_RE.test(file.name);
 
-  // Kaynak blob: normalde file; HEIC’te JPEG’e dönüştürdüğümüz blob
+  // Kaynak blob: normalde file; HEIC’te JPEG’e dönüştürülmüş blob
   let srcBlob: Blob = file;
 
   if (maybeHeic) {
@@ -22,18 +21,20 @@ export async function makeImagePreview(
       const out = await mod.default({
         blob: file,
         toType: "image/jpeg",
-        quality, // 0..1
+        quality,
       });
       srcBlob = (Array.isArray(out) ? out[0] : out) as Blob;
     } catch {
-      // Dönüştürülemediyse tarayıcı zaten gösteremez
       return {ok: false, reason: "unsupported"};
     }
   }
 
   const scaleDims = (w: number, h: number) => {
     const s = Math.min(maxSide / w, maxSide / h, 1);
-    return {w: Math.max(1, Math.round(w * s)), h: Math.max(1, Math.round(h * s))};
+    return {
+      w: Math.max(1, Math.round(w * s)),
+      h: Math.max(1, Math.round(h * s)),
+    };
   };
 
   // 1) createImageBitmap hızlı/sağlam
@@ -41,15 +42,24 @@ export async function makeImagePreview(
     try {
       const bmp = await createImageBitmap(srcBlob);
       const {w, h} = scaleDims(bmp.width, bmp.height);
+
       const canvas = document.createElement("canvas");
       canvas.width = w;
       canvas.height = h;
+
       const ctx = canvas.getContext("2d")!;
-      (ctx as any).imageSmoothingQuality = "high";
+      // ✅ any kullanmadan, özellik varsa ayarla
+      if ("imageSmoothingQuality" in ctx) {
+        (ctx as CanvasRenderingContext2D & {
+          imageSmoothingQuality: "low" | "medium" | "high";
+        }).imageSmoothingQuality = "high";
+      }
       ctx.drawImage(bmp, 0, 0, w, h);
       bmp.close?.();
+
       return {ok: true, dataUrl: canvas.toDataURL(outMime, quality)};
-    } catch { /* düş */
+    } catch {
+      // fallback'e düş
     }
   }
 
@@ -59,19 +69,32 @@ export async function makeImagePreview(
     const img = new Image();
     img.decoding = "async";
     img.src = blobURL;
-    await (img.decode?.() ?? new Promise((res, rej) => {
-      img.onload = () => res(null);
-      img.onerror = rej;
-    }));
+    await (
+      img.decode?.() ??
+      new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load error"));
+      })
+    );
     URL.revokeObjectURL(blobURL);
 
-    const {w, h} = scaleDims(img.naturalWidth || img.width, img.naturalHeight || img.height);
+    const {w, h} = scaleDims(
+      img.naturalWidth || img.width,
+      img.naturalHeight || img.height
+    );
+
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
+
     const ctx = canvas.getContext("2d")!;
-    (ctx as any).imageSmoothingQuality = "high";
+    if ("imageSmoothingQuality" in ctx) {
+      (ctx as CanvasRenderingContext2D & {
+        imageSmoothingQuality: "low" | "medium" | "high";
+      }).imageSmoothingQuality = "high";
+    }
     ctx.drawImage(img, 0, 0, w, h);
+
     return {ok: true, dataUrl: canvas.toDataURL(outMime, quality)};
   } catch {
     return {ok: false, reason: "decode_error"};
