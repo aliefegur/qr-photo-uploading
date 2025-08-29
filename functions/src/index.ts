@@ -4,107 +4,199 @@ import * as admin from "firebase-admin";
 import sharp from "sharp";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "@ffmpeg-installer/ffmpeg";
+import exifr from "exifr";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
 
-admin.initializeApp();
-setGlobalOptions({maxInstances: 10});
+setGlobalOptions({region: "europe-west1", maxInstances: 10});
 
-// Fluent-ffmpeg için binary yolu
+admin.initializeApp();
+
 ffmpeg.setFfmpegPath(ffmpegPath.path);
 
-export const generateThumbnail = onObjectFinalized({region: "europe-west1"}, async (event) => {
+export const generateThumbnail = onObjectFinalized(async (event) => {
   const object = event.data;
   if (!object.name || !object.contentType) return;
 
-  const bucket = admin.storage().bucket(object.bucket);
   const filePath = object.name;
   const fileName = path.basename(filePath);
-  const tempFilePath = path.join(os.tmpdir(), fileName);
+  if (filePath.startsWith("thumbnails/") || fileName.startsWith("thumb_")) return; // loop kır
+
+  const bucket = admin.storage().bucket(object.bucket);
+  const tmpSrc = path.join(os.tmpdir(), fileName);
   const thumbFileName = `thumb_${fileName}.jpg`;
-  const thumbFilePath = path.join(os.tmpdir(), thumbFileName);
-  const thumbDestination = `thumbnails/${thumbFileName}`;
+  const tmpThumb = path.join(os.tmpdir(), thumbFileName);
+  const destPath = `thumbnails/${thumbFileName}`;
 
-  if (fileName.startsWith("thumb_")) return;
-
-  await bucket.file(filePath).download({destination: tempFilePath});
+  await bucket.file(filePath).download({destination: tmpSrc});
 
   try {
     if (object.contentType.startsWith("image/")) {
-      // Resim thumbnail
-      await sharp(tempFilePath)
-        .resize(256, 256, {fit: "inside"})
-        .toFile(thumbFilePath);
-      console.log("Resim thumbnail oluşturuldu:", thumbDestination);
+      // EXIF'e göre auto-orient; kareye sığdır (bozulma yok)
+      await sharp(tmpSrc)
+        .rotate()
+        .resize(256, 256, {fit: "inside", withoutEnlargement: true, fastShrinkOnLoad: true})
+        .withMetadata({orientation: 1})
+        .jpeg({quality: 82})
+        .toFile(tmpThumb);
     } else if (object.contentType.startsWith("video/")) {
-      // Video thumbnail (fluent-ffmpeg ile)
+      // Oranı koru; 256x256'e pad ederek kare thumbnail üret
       await new Promise<void>((resolve, reject) => {
-        ffmpeg(tempFilePath)
-          .screenshots({
-            timestamps: ["1"],
-            filename: thumbFileName,
-            folder: os.tmpdir(),
-            size: "256x256"
-          })
+        ffmpeg(tmpSrc)
+          .outputOptions([
+            "-vframes 1",
+            "-vf",
+            "thumbnail,scale='if(gt(a,1),256,-1)':'if(gt(a,1),-1,256)',pad=256:256:(256-iw)/2:(256-ih)/2:black",
+          ])
+          .output(tmpThumb)
           .on("end", () => resolve())
-          .on("error", (err) => reject(err));
+          .on("error", (err) => reject(err))
+          .run();
       });
-      console.log("Video thumbnail oluşturuldu:", thumbDestination);
     } else {
-      console.log("Thumbnail oluşturulmadı, desteklenmeyen dosya:", fileName);
+      console.log("Desteklenmeyen tür, thumbnail atlandı:", object.contentType, filePath);
       return;
     }
 
-    // Thumbnail'ı bucket'a yükle
-    await bucket.upload(thumbFilePath, {
-      destination: thumbDestination,
-      metadata: {contentType: "image/jpeg"},
+    await bucket.upload(tmpThumb, {
+      destination: destPath,
+      metadata: {
+        contentType: "image/jpeg",
+        cacheControl: "public, max-age=3600",
+      },
     });
+    console.log("Thumbnail yüklendi:", destPath);
   } catch (err) {
-    console.error("Thumbnail oluşturulurken hata:", err);
+    console.error("Thumbnail oluşturma hatası:", err);
   } finally {
-    fs.unlinkSync(tempFilePath);
-    if (fs.existsSync(thumbFilePath)) fs.unlinkSync(thumbFilePath);
+    try {
+      fs.unlinkSync(tmpSrc);
+    } catch {
+    }
+    try {
+      fs.unlinkSync(tmpThumb);
+    } catch {
+    }
   }
 });
 
-export const deleteThumbnailOnSourceDelete = onObjectDeleted(
-  {region: "europe-west1"},
-  async (event) => {
-    const object = event.data;
-    if (!object?.name) return;
+/** ---------------------------------------
+ *  2) KAYNAK SİLİNİNCE THUMBNAIL'I SİL
+ *  --------------------------------------- */
+export const deleteThumbnailOnSourceDelete = onObjectDeleted(async (event) => {
+  const object = event.data;
+  if (!object?.name) return;
 
-    const originalPath = object.name;
+  const originalPath = object.name;
+  if (originalPath.startsWith("thumbnails/")) return;
+  if (!originalPath.startsWith("uploads/")) return; // isteğe bağlı ama güvenli
 
-    // thumbnails klasöründeki silmeleri YOKSAY (yoksa sonsuz tetiklenir)
-    if (originalPath.startsWith("thumbnails/")) return;
+  const bucket = admin.storage().bucket(object.bucket);
+  const fileName = path.basename(originalPath);
+  const withoutExt = fileName.replace(/\.[^/.]+$/, "");
 
-    // yalnızca uploads altını dinle (isteğe bağlı ama güvenli)
-    if (!originalPath.startsWith("uploads/")) return;
+  const candidates = [
+    `thumbnails/thumb_${fileName}.jpg`,   // ...jpg.jpg veya ...mp4.jpg olabilir
+    `thumbnails/thumb_${withoutExt}.jpg`, // fallback
+  ];
 
-    const bucket = admin.storage().bucket(object.bucket);
-    const fileName = path.basename(originalPath);               // örn: "123-abc_IMG_4054.JPG"
-    const withoutExt = fileName.replace(/\.[^/.]+$/, "");       // örn: "123-abc_IMG_4054"
-
-    // Olası thumbnail isim adayları
-    const candidates = [
-      `thumbnails/thumb_${fileName}.jpg`,   // örn: thumb_...JPG.jpg / thumb_...MP4.jpg
-      `thumbnails/thumb_${withoutExt}.jpg`, // fallback: thumb_...jpg
-    ];
-
-    for (const tPath of candidates) {
-      try {
-        const tFile = bucket.file(tPath);
-        const [exists] = await tFile.exists();
-        if (exists) {
-          await tFile.delete();
-          console.log("Thumbnail silindi:", tPath);
-        }
-      } catch (err) {
-        // 404 vs. sessiz geç; loglamak yeterli
-        console.warn("Thumbnail silme hatası:", tPath, err);
+  for (const t of candidates) {
+    try {
+      const f = bucket.file(t);
+      const [exists] = await f.exists();
+      if (exists) {
+        await f.delete();
+        console.log("Thumbnail silindi:", t);
       }
+    } catch (err) {
+      console.warn("Thumbnail silme hatası:", t, err);
     }
   }
-);
+});
+
+/** ---------------------------------------------------
+ *  3) EXIF/FFPROBE METADATA → STORAGE custom metadata
+ *     (Firestore YOK — sadece Other metadata)
+ *  --------------------------------------------------- */
+export const indexMediaMetadata = onObjectFinalized(async (event) => {
+  const obj = event.data;
+  if (!obj.name || !obj.contentType) return;
+  if (obj.name.startsWith("thumbnails/")) return;
+
+  const bucket = admin.storage().bucket(obj.bucket);
+  const filePath = obj.name;
+  const file = bucket.file(filePath);
+
+  // Geçerli GCS metadata’yı al (token vs. kaybolmasın)
+  const [curr] = await file.getMetadata().catch(() => [undefined as any]);
+  const existingCustomMeta = (curr?.metadata ?? {}) as Record<string, string>;
+
+  const tmp = path.join(os.tmpdir(), path.basename(filePath));
+  await file.download({destination: tmp});
+
+  const collected: Record<string, any> = {
+    fullPath: filePath,
+    contentType: obj.contentType,
+    size: Number(obj.size ?? 0),
+    uploadedAt: obj.timeCreated ?? new Date().toISOString(),
+  };
+
+  try {
+    if (obj.contentType.startsWith("image/")) {
+      const exif = await exifr.parse(tmp, {tiff: true, exif: true, gps: true, xmp: true});
+      collected.capturedAt = exif?.DateTimeOriginal ? new Date(exif.DateTimeOriginal).toISOString() : null;
+      collected.cameraMake = exif?.Make ?? null;
+      collected.cameraModel = exif?.Model ?? null;
+      collected.lensModel = exif?.LensModel ?? null;
+      collected.iso = exif?.ISO ?? null;
+      collected.fNumber = exif?.FNumber ?? null;
+      collected.exposureTime = exif?.ExposureTime ?? null;
+      collected.focalLength = exif?.FocalLength ?? null;
+      if (exif?.latitude != null && exif?.longitude != null && exif?.altitude != null) {
+        collected.gps = {latitude: exif.latitude, longitude: exif.longitude, altitude: exif.altitude};
+      }
+    } else if (obj.contentType.startsWith("video/")) {
+      const probe: any = await new Promise((resolve, reject) =>
+        ffmpeg.ffprobe(tmp, (err, data) => (err ? reject(err) : resolve(data)))
+      );
+      const format = probe?.format ?? {};
+      const tags = format?.tags ?? {};
+      const creation =
+        tags["com.apple.quicktime.creationdate"] ||
+        tags["creation_time"] ||
+        tags["date"] ||
+        null;
+
+      collected.capturedAt = creation ? new Date(creation).toISOString() : null;
+      collected.durationSec = format.duration ?? null;
+
+      const stream = (probe?.streams || []).find((s: any) => s.width && s.height);
+      if (stream) {
+        collected.width = stream.width;
+        collected.height = stream.height;
+      }
+    }
+  } catch (e) {
+    console.warn("Metadata parse failed:", e);
+  } finally {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+    }
+  }
+
+  // custom metadata yalnızca string kabul eder → temizle & stringleştir
+  const toWrite: Record<string, string> = {...existingCustomMeta};
+  for (const [k, v] of Object.entries(collected)) {
+    if (v == null) continue;
+    toWrite[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+
+  try {
+    await file.setMetadata({metadata: toWrite});
+    console.log("Custom metadata güncellendi:", filePath);
+  } catch (e) {
+    console.error("setMetadata hatası:", e);
+  }
+});
