@@ -1,4 +1,4 @@
-import {onObjectFinalized} from "firebase-functions/v2/storage";
+import {onObjectDeleted, onObjectFinalized} from "firebase-functions/v2/storage";
 import {setGlobalOptions} from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import sharp from "sharp";
@@ -68,3 +68,43 @@ export const generateThumbnail = onObjectFinalized({region: "europe-west1"}, asy
     if (fs.existsSync(thumbFilePath)) fs.unlinkSync(thumbFilePath);
   }
 });
+
+export const deleteThumbnailOnSourceDelete = onObjectDeleted(
+  {region: "europe-west1"},
+  async (event) => {
+    const object = event.data;
+    if (!object?.name) return;
+
+    const originalPath = object.name;
+
+    // thumbnails klasöründeki silmeleri YOKSAY (yoksa sonsuz tetiklenir)
+    if (originalPath.startsWith("thumbnails/")) return;
+
+    // yalnızca uploads altını dinle (isteğe bağlı ama güvenli)
+    if (!originalPath.startsWith("uploads/")) return;
+
+    const bucket = admin.storage().bucket(object.bucket);
+    const fileName = path.basename(originalPath);               // örn: "123-abc_IMG_4054.JPG"
+    const withoutExt = fileName.replace(/\.[^/.]+$/, "");       // örn: "123-abc_IMG_4054"
+
+    // Olası thumbnail isim adayları
+    const candidates = [
+      `thumbnails/thumb_${fileName}.jpg`,   // örn: thumb_...JPG.jpg / thumb_...MP4.jpg
+      `thumbnails/thumb_${withoutExt}.jpg`, // fallback: thumb_...jpg
+    ];
+
+    for (const tPath of candidates) {
+      try {
+        const tFile = bucket.file(tPath);
+        const [exists] = await tFile.exists();
+        if (exists) {
+          await tFile.delete();
+          console.log("Thumbnail silindi:", tPath);
+        }
+      } catch (err) {
+        // 404 vs. sessiz geç; loglamak yeterli
+        console.warn("Thumbnail silme hatası:", tPath, err);
+      }
+    }
+  }
+);
