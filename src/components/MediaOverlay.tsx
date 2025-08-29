@@ -5,6 +5,7 @@ import {getDownloadURL, ref} from "firebase/storage";
 import {storage} from "@/lib/firebase";
 import {faDownload, faPhotoVideo, faXmark} from "@fortawesome/free-solid-svg-icons";
 import Spinner from "@/components/Spinner";
+import {isHeicName} from "@/utils/files";
 
 export default function MediaOverlay({
                                        open,

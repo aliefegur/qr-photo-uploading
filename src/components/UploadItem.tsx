@@ -14,44 +14,43 @@ export default function UploadItem({
   onCancel: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const hasThumb = Boolean(u.thumbURL);
+  // tür tespiti
   const isVideo =
-    (u.file?.type?.startsWith("video") ?? false) || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(u.fileName);
-  const imgSrc = u.thumbURL || (u.file ? u.previewURL : u.downloadURL);
+    (u.file?.type?.startsWith("video") ?? false) ||
+    /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(u.fileName);
+
+  // thumb varsa her zaman onu göster; yoksa (sadece image ise) local preview / downloadURL
+  const hasThumb = Boolean(u.thumbURL);
+  const imageSrc = hasThumb
+    ? u.thumbURL
+    : !isVideo
+      ? (u.file ? u.previewURL : u.downloadURL)
+      : undefined;
+
+  console.log(imageSrc);
 
   return (
     <li className="flex items-center space-x-3 w-full p-2 bg-white rounded-lg shadow-sm">
       {/* PREVIEW */}
-      {imgSrc && !isVideo ? (
+      {imageSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={imgSrc}
+          src={imageSrc}
           alt={u.fileName}
           className="w-16 h-16 object-cover rounded"
           loading="lazy"
           width={64}
           height={64}
-          onError={(e) => {
-            // kırılırsa ikona düş
-            const el = e.currentTarget;
-            el.style.display = "none";
-            const sib = el.nextElementSibling as HTMLElement | null;
-            if (sib) sib.style.display = "grid";
-          }}
         />
-      ) : null}
-
-      {/* fallback kutu (başta gizli, img kırılırsa görünecek) */}
-      {!isVideo ? (
-        <div
-          className="w-16 h-16 rounded bg-slate-100 grid place-items-center"
-          style={{display: imgSrc && !isVideo ? "none" : "grid"}}
-        >
-          <FontAwesomeIcon className="w-6 h-6 text-slate-500" icon={faImage}/>
-        </div>
-      ) : (
+      ) : isVideo ? (
         // video + thumb yok → ikon
         <div className="w-16 h-16 rounded bg-slate-200 grid place-items-center">
-          <FontAwesomeIcon className="w-6 h-6 text-slate-600" icon={faPhotoVideo}/>
+          <FontAwesomeIcon className="text-slate-600" icon={faPhotoVideo} style={{fontSize: "20pt"}}/>
+        </div>
+      ) : (
+        // image fakat gösterilecek kaynak yok → ikon
+        <div className="w-16 h-16 rounded bg-slate-100 grid place-items-center">
+          <FontAwesomeIcon className="text-slate-500" icon={faImage} style={{fontSize: "20pt"}}/>
         </div>
       )}
 
