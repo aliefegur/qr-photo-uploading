@@ -28,7 +28,15 @@ export function useListUploads() {
       const thumbs = await Promise.all(newEntries.map((e) => resolveThumbURL(e.fullPath)));
       const withThumbs = newEntries.map((e, i) => ({...e, thumbURL: thumbs[i] ?? undefined}));
 
-      setItems((prev) => [...prev, ...withThumbs]);
+      setItems(prev => {
+        const map = new Map(prev.map(e => [e.fullPath, e]));
+        for (const e of withThumbs) {
+          const existing = map.get(e.fullPath);
+          map.set(e.fullPath, existing ? {...existing, ...e} : e);
+        }
+        
+        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+      });
       setPageToken(res.nextPageToken ?? null);
     } finally {
       setLoadingPage(false);

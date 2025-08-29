@@ -11,6 +11,9 @@ import {
 } from "@/lib/uploadService";
 import {loadUploads, saveUploads} from "@/utils/storage";
 import {makeImagePreview} from "@/utils/localPreview";
+import {FirebaseError} from "@firebase/app";
+import {getMetadata, ref} from "firebase/storage";
+import {storage} from "@/lib/firebase";
 
 export function useUploads() {
   const [uploads, setUploads] = useState<UploadState[]>([]);
@@ -18,8 +21,39 @@ export function useUploads() {
 
   // LS'den yükle
   useEffect(() => {
-    const persisted = loadUploads();
-    setUploads(persisted);
+    const saved = loadUploads();
+    setUploads(saved);
+
+    // Bulutta artık olmayanları LS'den temizle
+    (async () => {
+      const alive: UploadState[] = [];
+      for (const u of saved) {
+        // sadece tamamlanmış ve path'i olanları kontrol et
+        if (!u.complete || !u.path) {
+          alive.push(u);
+          continue;
+        }
+
+        try {
+          await getMetadata(ref(storage, u.path));
+          // obje var → bırak
+          alive.push(u);
+        } catch (err: unknown) {
+          // storage/object-not-found ise sil
+          if (err instanceof FirebaseError && err.code === "storage/object-not-found") {
+            // hiç ekleme yapma → düşer
+            continue;
+          }
+          // başka hata (geçici ağ vb.) -> dokunma
+          alive.push(u);
+        }
+      }
+
+      if (alive.length !== saved.length) {
+        setUploads(alive);
+        saveUploads(alive);
+      }
+    })();
   }, []);
 
   // Sayfa açılınca, thumbURL'i olmayan completed kayıtlar için thumbnail'i dene
@@ -138,5 +172,29 @@ export function useUploads() {
     saveUploads(updated);
   };
 
-  return {uploads, addFiles, cancelUploadById, deleteCompletedById};
+  // mevcut saveUploadsToLocalStorage fonksiyonunu kullanıyoruz
+  const removeUpload = (id: string) => {
+    setUploads(prev => {
+      const updated = prev.filter(u => u.id !== id);
+      saveUploads(updated);
+      return updated;
+    });
+  };
+
+  const updateDownloadURLById = (id: string, freshURL: string) => {
+    setUploads(prev => {
+      const updated = prev.map(u => (u.id === id ? {...u, downloadURL: freshURL} : u));
+      saveUploads(updated);
+      return updated;
+    });
+  };
+
+  return {
+    uploads,
+    addFiles,
+    cancelUploadById,
+    deleteCompletedById,
+    removeUpload,
+    updateDownloadURLById,
+  };
 }

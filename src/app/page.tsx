@@ -6,7 +6,14 @@ import FloatingUploadButton from "@/components/FloatingUploadButton";
 import {useUploads} from "@/hooks/useUploads";
 
 export default function Home() {
-  const {uploads, addFiles, cancelUploadById, deleteCompletedById} = useUploads();
+  const {
+    uploads,
+    addFiles,
+    cancelUploadById,
+    deleteCompletedById,
+    updateDownloadURLById,
+    removeUpload,
+  } = useUploads();
 
   return (
     <main className="relative h-screen flex flex-col">
@@ -25,6 +32,8 @@ export default function Home() {
                 console.error("Silme hatası:", err);
               }
             }}
+            onUpdateDownloadURL={updateDownloadURLById} // ✅
+            onRemoveLocal={removeUpload}               // ✅
           />
         ) : (
           <label className="flex-1 flex h-full items-center justify-center relative px-6 lg:px-20 cursor-pointer">

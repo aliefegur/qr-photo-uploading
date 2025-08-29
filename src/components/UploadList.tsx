@@ -7,10 +7,14 @@ export default function UploadList({
                                      uploads,
                                      onCancel,
                                      onDelete,
+                                     onUpdateDownloadURL,
+                                     onRemoveLocal,
                                    }: {
   uploads: UploadState[];
   onCancel: (id: string) => void;
   onDelete: (id: string) => void;
+  onUpdateDownloadURL: (id: string, freshURL: string) => void;
+  onRemoveLocal: (id: string) => void;
 }) {
   if (uploads.length === 0) return null;
 
@@ -19,7 +23,14 @@ export default function UploadList({
       <h2 className="text-xl font-semibold">Yüklemeler</h2>
       <ul className="space-y-3">
         {uploads.map((u) => (
-          <UploadItem key={u.id} u={u} onCancel={onCancel} onDelete={onDelete}/>
+          <UploadItem
+            key={u.id}
+            u={u}
+            onCancel={onCancel}
+            onDelete={onDelete}
+            onUpdateDownloadURL={onUpdateDownloadURL}
+            onRemoveLocal={onRemoveLocal}
+          />
         ))}
       </ul>
     </div>
