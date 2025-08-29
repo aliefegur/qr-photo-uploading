@@ -98,7 +98,7 @@ export default function GalleryPage() {
     <main className="min-h-screen flex flex-col">
       {/* Top bar */}
       <header
-        className="sticky top-0 z-40 h-14 border-b bg-white/90 backdrop-blur flex items-center justify-between px-3 md:px-6">
+        className="sticky top-0 z-40 h-14 border-b border-slate-300 bg-white/60 backdrop-blur flex items-center justify-between px-3 md:px-6">
         {!selectionMode ? (
           <div className="flex items-center gap-2 text-slate-800">
             <FontAwesomeIcon icon={faFolderOpen} className="h-5 w-5"/>
@@ -144,7 +144,7 @@ export default function GalleryPage() {
         {/* Empty state */}
         {!loadingPage && items.length === 0 ? (
           <div className="py-20 flex flex-col items-center justify-center text-slate-500">
-            <FontAwesomeIcon icon={faFolderOpen} className="w-12 h-12 mb-3"/>
+            <FontAwesomeIcon icon={faFolderOpen} className="mb-3" style={{fontSize: "48pt"}}/>
             <p className="text-sm">Henüz hiçbir içerik yüklenmedi</p>
           </div>
         ) : (
@@ -155,7 +155,7 @@ export default function GalleryPage() {
                 const selectedNow = isSelected(it.fullPath);
                 return (
                   <div key={it.fullPath}
-                       className={`group relative aspect-square rounded-xl overflow-hidden border bg-white ${selectedNow ? "ring-2 ring-blue-500 border-blue-500" : ""}`}>
+                       className={`group relative aspect-square rounded-xl overflow-hidden ${selectedNow ? "ring-2 ring-blue-500 border-blue-500" : ""}`}>
                     {/* Thumb / Icon */}
                     {it.thumbURL ? (
                       <button onClick={() => onOpen(it)} className="absolute inset-0">
@@ -178,9 +178,9 @@ export default function GalleryPage() {
 
                     {/* Filename footer */}
                     <div
-                      className="flex items-center gap-2 absolute bottom-0 left-0 right-0 bg-white/90 backdrop-blur px-2 py-1 text-xs truncate">
+                      className="flex items-center gap-2 px-2 py-3 absolute bottom-0 left-0 right-0 bg-white/50 backdrop-blur text-xs truncate">
                       <FontAwesomeIcon icon={faPhotoVideo} style={{fontSize: "16pt"}}/>
-                      <p>{it.name}</p>
+                      <p className="truncate">{it.name}</p>
                     </div>
 
                     {/* Checkbox (Drive-style): hover'da görün, selection'da kalıcı */}
@@ -193,7 +193,7 @@ export default function GalleryPage() {
                         onChange={() => toggle(it.fullPath)}
                       />
                       <span
-                        className={`h-4 w-4 rounded border ${selectedNow ? "bg-blue-600 border-blue-600" : "border-slate-400 bg-white"} grid place-items-center`}>
+                        className={`h-4 w-4 rounded ${selectedNow ? "border bg-blue-600 border-blue-600" : "bg-white"} grid place-items-center`}>
                         {selectedNow && <FontAwesomeIcon icon={faCheck} className="text-white h-3 w-3"/>}
                       </span>
                     </label>
