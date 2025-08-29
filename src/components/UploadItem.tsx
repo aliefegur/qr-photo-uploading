@@ -1,10 +1,9 @@
 "use client";
 
 import {FontAwesomeIcon} from "@fortawesome/react-fontawesome";
-import {faPhotoFilm, faTrashCan} from "@fortawesome/free-solid-svg-icons";
+import {faImage, faPhotoVideo, faTrashCan} from "@fortawesome/free-solid-svg-icons";
 import {UploadState} from "@/types/uploads";
 import {formatBytes} from "@/utils/bytes";
-import {isProbablyVideo} from "@/utils/files";
 
 export default function UploadItem({
                                      u,
@@ -16,40 +15,43 @@ export default function UploadItem({
   onDelete: (id: string) => void;
 }) {
   const hasThumb = Boolean(u.thumbURL);
-  const isImage = hasThumb || (u.file?.type?.startsWith("image") ?? false);
   const isVideo =
-    (u.file?.type?.startsWith("video") ?? false) || isProbablyVideo(u.fileName);
-  // gösterilecek görsel kaynağı: önce thumbURL, yoksa (video değilse) fallback
-  const imgSrc =
-    u.thumbURL ||
-    (!isVideo ? (u.file ? u.previewURL : u.downloadURL) : undefined);
+    (u.file?.type?.startsWith("video") ?? false) || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(u.fileName);
+  const imgSrc = u.thumbURL || (u.file ? u.previewURL : u.downloadURL);
 
   return (
     <li className="flex items-center space-x-3 w-full p-2 bg-white rounded-lg shadow-sm">
       {/* PREVIEW */}
-      {imgSrc ? (
-        // thumbnail veya (image için) fallback görsel
+      {imgSrc && !isVideo ? (
         <img
           src={imgSrc}
           alt={u.fileName}
           className="w-16 h-16 object-cover rounded"
           loading="lazy"
-          decoding="async"
           width={64}
           height={64}
+          onError={(e) => {
+            // kırılırsa ikona düş
+            const el = e.currentTarget;
+            el.style.display = "none";
+            const sib = el.nextElementSibling as HTMLElement | null;
+            if (sib) sib.style.display = "grid";
+          }}
         />
-      ) : isVideo ? (
-        // video + thumbnail yok → sadece ikon
+      ) : null}
+
+      {/* fallback kutu (başta gizli, img kırılırsa görünecek) */}
+      {!isVideo ? (
         <div
-          className="w-16 h-16 rounded bg-slate-200 grid place-items-center"
-          aria-label="Video"
+          className="w-16 h-16 rounded bg-slate-100 grid place-items-center"
+          style={{display: imgSrc && !isVideo ? "none" : "grid"}}
         >
-          <FontAwesomeIcon className="text-slate-600" icon={faPhotoFilm} style={{fontSize: "24pt"}}/>
+          <FontAwesomeIcon className="w-6 h-6 text-slate-500" icon={faImage}/>
         </div>
       ) : (
-        // bilinmeyen/önizlenemeyen tip (çok nadir)
-        <div className="w-16 h-16 rounded bg-slate-100 grid place-items-center">
-          <span className="text-[10px] text-slate-500">No preview</span>
+        // video + thumb yok → ikon
+        <div className="w-16 h-16 rounded bg-slate-200 grid place-items-center">
+          <FontAwesomeIcon className="w-6 h-6 text-slate-600" icon={faPhotoVideo}/>
         </div>
       )}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import {useEffect, useRef, useState} from "react";
-import type {UploadState, UploadPatch} from "@/types/uploads";
+import type {UploadPatch, UploadState} from "@/types/uploads";
 import {
   bindUploadEvents,
   cancelUpload as svcCancel,
@@ -10,6 +10,7 @@ import {
   waitForThumbnailURL
 } from "@/lib/uploadService";
 import {loadUploads, saveUploads} from "@/utils/storage";
+import {makeImagePreview} from "@/utils/localPreview";
 
 export function useUploads() {
   const [uploads, setUploads] = useState<UploadState[]>([]);
@@ -64,16 +65,43 @@ export function useUploads() {
     const arr = Array.from(files as ArrayLike<File>);
     const newOnes: UploadState[] = arr.map(startUpload);
 
+    // ekranda hemen görünsün diye önce raw blob (startUpload'ta var) ile ekle
     setUploads((prev): UploadState[] => [...newOnes, ...prev]);
 
-    newOnes.forEach((u) => {
+    newOnes.forEach(async (u) => {
+      // sadece görüntü dosyalarında küçük preview dene
+      if (u.file && u.file.type.startsWith("image/")) {
+        try {
+          const res = await makeImagePreview(u.file, 256);
+          if (res.ok) {
+            setUploads((prev): UploadState[] =>
+              prev.map((x) => {
+                if (x.id !== u.id) return x;
+                // eski blob'u serbest bırak
+                if (x.previewURL && x.previewURL.startsWith("blob:")) {
+                  try {
+                    URL.revokeObjectURL(x.previewURL);
+                  } catch {
+                  }
+                }
+                return {...x, previewURL: res.dataUrl}; // ✅ küçük dataURL
+              })
+            );
+          } else if (res.reason === "unsupported") {
+            // HEIC/HEIF: <img> zaten gösteremez; ikon fallback kullanacağız
+            // burada state'e dokunmuyoruz; UI ikon gösterecek
+          }
+        } catch (e) {
+          console.warn("Local preview üretilemedi:", e);
+        }
+      }
+
+      // upload eventlerini bağla (değiştirme yok)
       bindUploadEvents(
         u,
         (partial: UploadPatch) => {
           setUploads((prev): UploadState[] =>
-            prev.map((x) =>
-              x.id === partial.id ? ({...x, ...partial} as UploadState) : x
-            )
+            prev.map((x) => (x.id === partial.id ? ({...x, ...partial} as UploadState) : x))
           );
         },
         (partial: UploadPatch) => {
@@ -81,7 +109,7 @@ export function useUploads() {
             const updated = prev.map((x) =>
               x.id === partial.id ? ({...x, ...partial} as UploadState) : x
             );
-            saveUploads(updated);  // ✅ thumbURL dahil persist
+            saveUploads(updated);
             return updated;
           });
         },
