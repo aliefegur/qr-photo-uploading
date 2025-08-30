@@ -1,6 +1,7 @@
 import {storage} from "@/lib/firebase";
 import {deleteObject, getDownloadURL, ref, uploadBytesResumable} from "firebase/storage";
 import type {UploadState} from "@/types/uploads";
+import {inferMimeType} from "@/utils/mime";
 
 const getThumbnailCandidates = (originalPath: string) => {
   const base = originalPath.split("/").pop()!;               // "123-abc_IMG_4054.JPG"
@@ -54,10 +55,11 @@ export const startUpload = (file: File): UploadState => {
     return Math.random().toString(36).slice(2);
   }
 
-  const id = `${Date.now()}-${safeRandomId()}`;
-  const path = `uploads/${id}-${file.name}`;
+  const id = `${Date.now()}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  const path = `uploads/${Date.now()}-${file.name}`;
   const storageRef = ref(storage, path);
-  const uploadTask = uploadBytesResumable(storageRef, file);
+  const contentType = inferMimeType({name: file.name, type: file.type}) ?? "application/octet-stream";
+  const uploadTask = uploadBytesResumable(storageRef, file, {contentType});
 
   return {
     id,
@@ -65,9 +67,11 @@ export const startUpload = (file: File): UploadState => {
     fileName: file.name,
     progress: 0,
     complete: false,
-    previewURL: URL.createObjectURL(file),
+    previewURL: URL.createObjectURL(file), // HEIC için sonra temizleyeceğiz
     path,
     uploadTask,
+    bytesTransferred: 0,
+    totalBytes: typeof file.size === "number" ? file.size : undefined, // ⬅️ önemli
   };
 };
 

@@ -6,7 +6,8 @@ import {UploadState} from "@/types/uploads";
 import {formatBytes} from "@/utils/bytes";
 import {getDownloadURL, getMetadata, ref} from "firebase/storage";
 import {storage} from "@/lib/firebase";
-import {FirebaseError} from "firebase/app"; // ✅ doğru paket
+import {FirebaseError} from "firebase/app";
+import Spinner from "@/components/Spinner"; // ✅ doğru paket
 
 export default function UploadItem({
                                      u,
@@ -25,48 +26,80 @@ export default function UploadItem({
     (u.file?.type?.startsWith("video") ?? false) ||
     /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(u.fileName);
 
+  const showSpinner = Boolean(u.previewPending);
   const hasThumb = Boolean(u.thumbURL);
-  const imageSrc = hasThumb ? u.thumbURL : !isVideo ? (u.file ? u.previewURL : u.downloadURL) : undefined;
+  const imageSrc =
+    hasThumb
+      ? u.thumbURL
+      : !isVideo
+        ? (u.file ? u.previewURL : u.downloadURL)
+        : undefined;
+
+  const transferred = u.bytesTransferred ?? 0;
+  const total = (u.totalBytes ?? u.file?.size ?? 0);
+  const pct = total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : (u.progress ?? 0);
 
   return (
     <li className="flex items-center space-x-3 w-full p-2 bg-white rounded-lg shadow-sm">
       {/* PREVIEW */}
-      {imageSrc ? (
+      {showSpinner ? (
+        <div className="w-16 h-16 rounded bg-slate-100 grid place-items-center">
+          <Spinner size={18}/>
+        </div>
+      ) : imageSrc ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageSrc}
           alt={u.fileName}
           className="w-16 h-16 object-cover rounded"
-          loading="lazy"
           width={64}
           height={64}
           onError={async (e) => {
+            const src = e.currentTarget.src;
+
+            // 1) Thumbnail 404 ise LS silme. Sadece ikona düş.
+            if (/\/thumbnails\//.test(src)) {
+              e.currentTarget.style.display = "none";
+              const sib = e.currentTarget.nextElementSibling as HTMLElement | null;
+              if (sib) sib.style.display = "grid";
+              return;
+            }
+
+            // 2) Local blob/dataURL hatası (özellikle HEIC dönüşmeden önce): silme yok.
+            if (src.startsWith("blob:") || src.startsWith("data:")) {
+              e.currentTarget.style.display = "none";
+              const sib = e.currentTarget.nextElementSibling as HTMLElement | null;
+              if (sib) sib.style.display = "grid";
+              return;
+            }
+
+            // 3) Cloud orijinal (uploads/...) kırıldıysa — gerçekten var mı kontrol et
             if (u.path) {
               try {
-                await getMetadata(ref(storage, u.path));               // obje var mı?
-                const fresh = await getDownloadURL(ref(storage, u.path)); // token tazele
-                onUpdateDownloadURL(u.id, fresh);                        // ✅ parent’ta state+LS güncelle
-                e.currentTarget.src = fresh;                             // img tag’ini güncelle
+                await getMetadata(ref(storage, u.path));
+                // Obje var → muhtemelen token eskidi; tazele
+                const fresh = await getDownloadURL(ref(storage, u.path));
+                e.currentTarget.src = fresh;
                 return;
-              } catch (err: unknown) {
+              } catch (err) {
                 if (err instanceof FirebaseError && err.code === "storage/object-not-found") {
-                  onRemoveLocal(u.id);                                   // ✅ bulutta yok → local’den kaldır
+                  // Gerçekten yok: burada LS temizlenmesini istiyorsun → üstten gelen onDelete ile sil
+                  onDelete(u.id);
                   return;
                 }
-                // başka bir hata ise dokunma (geçici olabilir)
               }
-            } else {
-              onRemoveLocal(u.id);                                       // path yoksa local’den kaldır
             }
+
+            // Her durumda ikona düş
+            e.currentTarget.style.display = "none";
+            const sib = e.currentTarget.nextElementSibling as HTMLElement | null;
+            if (sib) sib.style.display = "grid";
           }}
         />
-      ) : isVideo ? (
-        <div className="w-16 h-16 rounded bg-slate-200 grid place-items-center">
-          <FontAwesomeIcon className="text-slate-600" icon={faPhotoVideo} style={{fontSize: "20pt"}}/>
-        </div>
       ) : (
         <div className="w-16 h-16 rounded bg-slate-100 grid place-items-center">
-          <FontAwesomeIcon className="text-slate-500" icon={faImage} style={{fontSize: "20pt"}}/>
+          <FontAwesomeIcon className="text-slate-500" icon={isVideo ? faPhotoVideo : faImage}
+                           style={{fontSize: "20pt"}}/>
         </div>
       )}
 
@@ -94,13 +127,11 @@ export default function UploadItem({
             <div className="w-full h-2 bg-gray-200 rounded overflow-hidden relative">
               <div
                 className="h-2 rounded bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600 transition-all duration-300"
-                style={{width: `${u.progress}%`}}
+                style={{width: `${pct}%`}}
               />
             </div>
             <p className="text-xs text-gray-600">
-              {`${formatBytes(u.bytesTransferred || 0)} / ${formatBytes(u.totalBytes || 0)} (${Math.round(
-                u.progress || 0
-              )}% tamamlandı)`}
+              {`${formatBytes(transferred)} / ${formatBytes(total)} (${pct}% tamamlandı)`}
             </p>
           </>
         )}

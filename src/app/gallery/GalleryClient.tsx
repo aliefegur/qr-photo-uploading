@@ -16,7 +16,6 @@ import {
   faPhotoVideo,
   faSquareCheck,
   faTrash,
-  faVideo,
 } from "@fortawesome/free-solid-svg-icons";
 import {GalleryEntry} from "@/types/gallery";
 import {useListUploads} from "@/hooks/useListUploads";
@@ -167,12 +166,12 @@ export default function GalleryPage() {
                     ) : it.isVideo ? (
                       <button onClick={() => onOpen(it)}
                               className="absolute inset-0 grid place-items-center bg-slate-100">
-                        <FontAwesomeIcon icon={faVideo} className="h-8 w-8 text-slate-600"/>
+                        <FontAwesomeIcon icon={faPhotoVideo} className="text-slate-600" style={{fontSize: "48pt"}}/>
                       </button>
                     ) : (
                       <button onClick={() => onOpen(it)}
                               className="absolute inset-0 grid place-items-center bg-slate-50">
-                        <FontAwesomeIcon icon={faFileImage} className="h-8 w-8 text-slate-500"/>
+                        <FontAwesomeIcon icon={faFileImage} className="text-slate-500" style={{fontSize: "48pt"}}/>
                       </button>
                     )}
 

@@ -11,6 +11,8 @@ export interface UploadState {
   bytesTransferred?: number;
   totalBytes?: number;
   uploadTask?: import("firebase/storage").UploadTask;
+  isHeic?: boolean;          // HEIC/HEIF mi?
+  previewPending?: boolean;  // local preview üretiliyor mu?
 }
 
 export type UploadPatch = Partial<UploadState> & { id: string };

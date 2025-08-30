@@ -1,102 +1,98 @@
-const HEIC_RE = /(image\/hei[cf])|(heic|heif)$/i;
+"use client";
 
-export type PreviewResult =
-  | { ok: true; dataUrl: string }
-  | { ok: false; reason: "unsupported" | "decode_error" };
+export type PreviewOk = { ok: true; dataUrl: string };
+export type PreviewFail =
+  | { ok: false; reason: "unsupported" }
+  | { ok: false; reason: "error"; message?: string };
+export type PreviewResult = PreviewOk | PreviewFail;
 
-export async function makeImagePreview(
-  file: File,
-  maxSide = 256,
-  outMime = "image/jpeg",
-  quality = 0.82
-): Promise<PreviewResult> {
-  const maybeHeic = HEIC_RE.test(file.type) || HEIC_RE.test(file.name);
+const MAX_DIM = 256;
+const HEIC_TYPES = new Set(["image/heic", "image/heif"]);
+const HEIC_EXT = /\.(heic|heif)$/i;
 
-  // Kaynak blob: normalde file; HEIC’te JPEG’e dönüştürülmüş blob
-  let srcBlob: Blob = file;
+function isHeicFile(name: string, mime?: string): boolean {
+  return HEIC_TYPES.has(mime ?? "") || HEIC_EXT.test(name);
+}
 
-  if (maybeHeic) {
+function isImageLike(name: string, mime?: string): boolean {
+  if (mime?.startsWith("image/")) return true;
+  return /\.(jpe?g|png|webp|gif|avif|bmp|tiff?)$/i.test(name) || isHeicFile(name, mime);
+}
+
+function fitInside(w: number, h: number, max: number) {
+  const s = Math.min(1, max / Math.max(w, h));
+  return {dw: Math.max(1, Math.round(w * s)), dh: Math.max(1, Math.round(h * s))};
+}
+
+async function decodeToImage(blob: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(blob);
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("decode failed"));
+    el.src = url;
+  }).finally(() => {
+    // decode tamamlandıktan sonra url'i temizliyoruz
     try {
-      const mod = await import("heic2any");
-      const out = await mod.default({
-        blob: file,
-        toType: "image/jpeg",
-        quality,
-      });
-      srcBlob = (Array.isArray(out) ? out[0] : out) as Blob;
+      URL.revokeObjectURL(url);
     } catch {
-      return {ok: false, reason: "unsupported"};
     }
+  });
+}
+
+export async function makeImagePreview(file: File, maxDim = MAX_DIM): Promise<PreviewResult> {
+  // SSR güvenliği: her ihtimale karşı
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return {ok: false, reason: "unsupported"};
   }
 
-  const scaleDims = (w: number, h: number) => {
-    const s = Math.min(maxSide / w, maxSide / h, 1);
-    return {
-      w: Math.max(1, Math.round(w * s)),
-      h: Math.max(1, Math.round(h * s)),
-    };
-  };
-
-  // 1) createImageBitmap hızlı/sağlam
-  if ("createImageBitmap" in window) {
-    try {
-      const bmp = await createImageBitmap(srcBlob);
-      const {w, h} = scaleDims(bmp.width, bmp.height);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-
-      const ctx = canvas.getContext("2d")!;
-      // ✅ any kullanmadan, özellik varsa ayarla
-      if ("imageSmoothingQuality" in ctx) {
-        (ctx as CanvasRenderingContext2D & {
-          imageSmoothingQuality: "low" | "medium" | "high";
-        }).imageSmoothingQuality = "high";
-      }
-      ctx.drawImage(bmp, 0, 0, w, h);
-      bmp.close?.();
-
-      return {ok: true, dataUrl: canvas.toDataURL(outMime, quality)};
-    } catch {
-      // fallback'e düş
-    }
-  }
-
-  // 2) HTMLImage fallback
   try {
-    const blobURL = URL.createObjectURL(srcBlob);
-    const img = new Image();
-    img.decoding = "async";
-    img.src = blobURL;
-    await (
-      img.decode?.() ??
-      new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error("Image load error"));
-      })
-    );
-    URL.revokeObjectURL(blobURL);
+    const name = file.name;
+    const mime = file.type;
 
-    const {w, h} = scaleDims(
-      img.naturalWidth || img.width,
-      img.naturalHeight || img.height
-    );
+    if (!isImageLike(name, mime)) return {ok: false, reason: "unsupported"};
+
+    let source: Blob = file;
+
+    // HEIC/HEIF → önce JPEG'e çevir (tarayıcıda ve sadece ihtiyaç olduğunda yükle)
+    if (isHeicFile(name, mime)) {
+      try {
+        const mod = await import("heic2any");
+        console.log('heic2any loaded!')
+        const heic2any = mod.default as (opts: {
+          blob: Blob;
+          toType?: string;
+          quality?: number
+        }) => Promise<Blob | Blob[]>;
+
+        const out = await heic2any({
+          blob: file,
+          toType: "image/jpeg",
+          quality: 0.82,
+        });
+
+        source = Array.isArray(out) ? out[0] : out;
+        console.log(source);
+      } catch (e) {
+        return {ok: false, reason: "error", message: e instanceof Error ? e.message : String(e)};
+      }
+    }
+
+    const imgEl = await decodeToImage(source);
+    const w = imgEl.naturalWidth || imgEl.width;
+    const h = imgEl.naturalHeight || imgEl.height;
+    const {dw, dh} = fitInside(w, h, maxDim);
 
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = dw;
+    canvas.height = dh;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return {ok: false, reason: "error", message: "2D context unavailable"};
 
-    const ctx = canvas.getContext("2d")!;
-    if ("imageSmoothingQuality" in ctx) {
-      (ctx as CanvasRenderingContext2D & {
-        imageSmoothingQuality: "low" | "medium" | "high";
-      }).imageSmoothingQuality = "high";
-    }
-    ctx.drawImage(img, 0, 0, w, h);
-
-    return {ok: true, dataUrl: canvas.toDataURL(outMime, quality)};
-  } catch {
-    return {ok: false, reason: "decode_error"};
+    ctx.drawImage(imgEl, 0, 0, dw, dh);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    return {ok: true, dataUrl};
+  } catch (e) {
+    return {ok: false, reason: "error", message: e instanceof Error ? e.message : String(e)};
   }
 }

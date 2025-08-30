@@ -1,7 +1,7 @@
 "use client";
 
 import {useEffect, useRef, useState} from "react";
-import type {UploadPatch, UploadState} from "@/types/uploads";
+import type {UploadState} from "@/types/uploads";
 import {
   bindUploadEvents,
   cancelUpload as svcCancel,
@@ -14,6 +14,8 @@ import {makeImagePreview} from "@/utils/localPreview";
 import {FirebaseError} from "@firebase/app";
 import {getMetadata, ref} from "firebase/storage";
 import {storage} from "@/lib/firebase";
+
+const HEIC_RE = /\.(heic|heif)$/i;
 
 export function useUploads() {
   const [uploads, setUploads] = useState<UploadState[]>([]);
@@ -99,59 +101,60 @@ export function useUploads() {
     const arr = Array.from(files as ArrayLike<File>);
     const newOnes: UploadState[] = arr.map(startUpload);
 
-    // ekranda hemen görünsün diye önce raw blob (startUpload'ta var) ile ekle
-    setUploads((prev): UploadState[] => [...newOnes, ...prev]);
+    // ekranda göster
+    setUploads(prev => [...newOnes, ...prev]);
 
-    newOnes.forEach(async (u) => {
-      // sadece görüntü dosyalarında küçük preview dene
-      if (u.file && u.file.type.startsWith("image/")) {
-        try {
-          const res = await makeImagePreview(u.file, 256);
-          if (res.ok) {
-            setUploads((prev): UploadState[] =>
-              prev.map((x) => {
-                if (x.id !== u.id) return x;
-                // eski blob'u serbest bırak
-                if (x.previewURL && x.previewURL.startsWith("blob:")) {
-                  try {
-                    URL.revokeObjectURL(x.previewURL);
-                  } catch {
-                  }
-                }
-                return {...x, previewURL: res.dataUrl}; // ✅ küçük dataURL
-              })
-            );
-          } else if (res.reason === "unsupported") {
-            // HEIC/HEIF: <img> zaten gösteremez; ikon fallback kullanacağız
-            // burada state'e dokunmuyoruz; UI ikon gösterecek
-          }
-        } catch (e) {
-          console.warn("Local preview üretilemedi:", e);
-        }
-      }
-
-      // upload eventlerini bağla (değiştirme yok)
+    newOnes.forEach((u) => {
+      // A) Upload event’lerini HEMEN bağla (kaçırma)
       bindUploadEvents(
         u,
-        (partial: UploadPatch) => {
-          setUploads((prev): UploadState[] =>
-            prev.map((x) => (x.id === partial.id ? ({...x, ...partial} as UploadState) : x))
-          );
+        (partial) => {
+          setUploads(prev => prev.map(x => x.id === partial.id ? {...x, ...partial} : x));
         },
-        (partial: UploadPatch) => {
-          setUploads((prev): UploadState[] => {
-            const updated = prev.map((x) =>
-              x.id === partial.id ? ({...x, ...partial} as UploadState) : x
-            );
-            saveUploads(updated);
-            return updated;
+        (partial) => {
+          setUploads(prev => {
+            const next = prev.map(x => x.id === partial.id ? {...x, ...partial} : x);
+            saveUploads(next);
+            return next;
           });
         },
-        (error: unknown) => {
-          console.error("Yükleme hatası:", error);
-          setUploads((prev): UploadState[] => prev.filter((x) => x.id !== u.id));
+        (err) => {
+          console.error("Yükleme hatası:", err);
+          setUploads(prev => prev.filter(x => x.id !== u.id));
         }
       );
+
+      // B) Preview’i ARKA PLANDA üret
+      (async () => {
+        const isHeic = HEIC_RE.test(u.fileName) || (u.file?.type?.startsWith("image/he") ?? false);
+        // HEIC blob: preview <img>’de render edilemeyeceği için gizle + spinner
+        if (isHeic) {
+          setUploads(prev =>
+            prev.map(x =>
+              x.id === u.id ? {...x, isHeic: true, previewPending: true, previewURL: undefined} : x
+            )
+          );
+        }
+
+        if (u.file && (u.file.type.startsWith("image/") || isHeic)) {
+          try {
+            const res = await makeImagePreview(u.file, 256);
+            setUploads(prev =>
+              prev.map(x =>
+                x.id === u.id
+                  ? {
+                    ...x,
+                    previewURL: res.ok ? res.dataUrl : x.previewURL,
+                    previewPending: false,
+                  }
+                  : x
+              )
+            );
+          } catch {
+            setUploads(prev => prev.map(x => x.id === u.id ? {...x, previewPending: false} : x));
+          }
+        }
+      })();
     });
   };
 

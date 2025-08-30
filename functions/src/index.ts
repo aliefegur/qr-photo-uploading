@@ -8,6 +8,7 @@ import exifr from "exifr";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs";
+import heicConvert from "heic-convert";
 
 setGlobalOptions({region: "europe-west1", maxInstances: 10});
 
@@ -17,10 +18,11 @@ ffmpeg.setFfmpegPath(ffmpegPath.path);
 
 export const generateThumbnail = onObjectFinalized(async (event) => {
   const object = event.data;
-  if (!object.name || !object.contentType) return;
+  if (!object.name) return;
 
   const filePath = object.name;
   const fileName = path.basename(filePath);
+  const contentType = object.contentType || "";
   if (filePath.startsWith("thumbnails/") || fileName.startsWith("thumb_")) return; // loop kır
 
   const bucket = admin.storage().bucket(object.bucket);
@@ -31,17 +33,82 @@ export const generateThumbnail = onObjectFinalized(async (event) => {
 
   await bucket.file(filePath).download({destination: tmpSrc});
 
+  // --- Tür tespiti (MIME veya uzantı) ---
+  const ext = path.extname(fileName).toLowerCase();
+  const isImageLike =
+    contentType.startsWith("image/") ||
+    ["jpg", "jpeg", "png", "webp", "gif", "avif", "heic", "heif", "bmp", "tif", "tiff"]
+      .some(e => ext === "." + e);
+  const isHeic =
+    contentType === "image/heic" ||
+    contentType === "image/heif" ||
+    ext === ".heic" ||
+    ext === ".heif";
+
   try {
-    if (object.contentType.startsWith("image/")) {
-      // EXIF'e göre auto-orient; kareye sığdır (bozulma yok)
-      await sharp(tmpSrc)
-        .rotate()
-        .resize(256, 256, {fit: "inside", withoutEnlargement: true, fastShrinkOnLoad: true})
-        .withMetadata({orientation: 1})
-        .jpeg({quality: 82})
-        .toFile(tmpThumb);
-    } else if (object.contentType.startsWith("video/")) {
-      // Oranı koru; 256x256'e pad ederek kare thumbnail üret
+    if (isImageLike) {
+      if (isHeic) {
+        // Önce sharp ile doğrudan decode dene
+        try {
+          await sharp(tmpSrc)
+            .rotate()
+            .resize(256, 256, {
+              fit: "inside",
+              withoutEnlargement: true,
+              fastShrinkOnLoad: true,
+            })
+            .withMetadata({orientation: 1})
+            .jpeg({quality: 82})
+            .toFile(tmpThumb);
+        } catch (e) {
+          // Fallback: HEIC -> JPEG (heic-convert), sonra sharp ile küçült
+          const inputBuf = await fs.promises.readFile(tmpSrc); // Buffer
+
+          const out = await heicConvert({
+            buffer: inputBuf,
+            format: "JPEG",
+            quality: 0.82,
+          });
+
+          let jpegBuf: Buffer;
+          if (Buffer.isBuffer(out)) {
+            jpegBuf = out;
+          } else if (out instanceof ArrayBuffer) {
+            jpegBuf = Buffer.from(out);
+          } else if (ArrayBuffer.isView(out)) {
+            // Uint8Array vb.
+            jpegBuf = Buffer.from(out.buffer);
+          } else {
+            throw new Error("Unexpected heic-convert output type");
+          }
+
+          await sharp(jpegBuf)
+            .rotate()
+            .resize(256, 256, {
+              fit: "inside",
+              withoutEnlargement: true,
+              fastShrinkOnLoad: true,
+            })
+            .withMetadata({orientation: 1})
+            .jpeg({quality: 82})
+            .toFile(tmpThumb);
+
+        }
+      } else {
+        // Diğer imajlar (JPEG/PNG/WEBP/AVIF/TIFF vs.)
+        await sharp(tmpSrc)
+          .rotate()
+          .resize(256, 256, {
+            fit: "inside",
+            withoutEnlargement: true,
+            fastShrinkOnLoad: true,
+          })
+          .withMetadata({orientation: 1})
+          .jpeg({quality: 82})
+          .toFile(tmpThumb);
+      }
+    } else if (contentType.startsWith("video/") || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(fileName)) {
+      // Video: oran koru + kareye pad
       await new Promise<void>((resolve, reject) => {
         ffmpeg(tmpSrc)
           .outputOptions([
@@ -55,7 +122,7 @@ export const generateThumbnail = onObjectFinalized(async (event) => {
           .run();
       });
     } else {
-      console.log("Desteklenmeyen tür, thumbnail atlandı:", object.contentType, filePath);
+      console.log("Desteklenmeyen tür, thumbnail atlandı:", contentType, filePath);
       return;
     }
 
