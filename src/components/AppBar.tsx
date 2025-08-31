@@ -20,7 +20,7 @@ export default function AppBar({onPick}: { onPick: (files: FileList) => void }) 
       </button>
 
       <label className="cursor-pointer relative text-blue-900"
-             onClick={() => track("button_click", {button_id: "app_bar_upload_media", location: "app_bar"})}>
+             onClick={() => track("button_click", {button_id: "upload_media", location: "app_bar"})}>
         <input
           type="file"
           accept="image/*,video/*"

@@ -39,7 +39,7 @@ export default function MediaLoadingClient() {
         ) : (
           <label
             className="flex-1 flex h-[100vh] items-center justify-center relative cursor-pointer"
-            onClick={() => track("button_click", {button_id: "client_body_upload_media", location: "client_body"})}>
+            onClick={() => track("button_click", {button_id: "upload_media", location: "client_body"})}>
             <input
               type="file"
               accept="image/*,video/*"
