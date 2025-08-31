@@ -4,7 +4,7 @@ import AppBar from "@/components/AppBar";
 import UploadList from "@/components/UploadList";
 import FloatingUploadButton from "@/components/FloatingUploadButton";
 import {useUploads} from "@/hooks/useUploads";
-import Head from "next/head";
+import {track} from "@/lib/analytics";
 
 export default function MediaLoadingClient() {
   const {
@@ -18,11 +18,6 @@ export default function MediaLoadingClient() {
 
   return (
     <main className="relative min-h-screen flex flex-col mt-20">
-      <Head>
-        <title>Medya Yükle - Oğuzhan ve Hatice</title>
-        <desc></desc>
-      </Head>
-
       <AppBar onPick={(files) => addFiles(files)}/>
 
       <section className="flex-1 pb-4 px-6 lg:px-20">
@@ -42,7 +37,9 @@ export default function MediaLoadingClient() {
             onRemoveLocal={removeUpload}               // ✅
           />
         ) : (
-          <label className="flex-1 flex h-full items-center justify-center relative px-6 lg:px-20 cursor-pointer">
+          <label
+            className="flex-1 flex h-[100vh] items-center justify-center relative cursor-pointer"
+            onClick={() => track("button_click", {button_id: "client_body_upload_media", location: "client_body"})}>
             <input
               type="file"
               accept="image/*,video/*"
